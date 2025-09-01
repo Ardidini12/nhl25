@@ -108,19 +108,54 @@ export const deleteSeason = async (req, res, next) => {
       throw error;
     }
 
-    // Cascade delete: Remove all season-club and season-player associations
+    // Get all clubs and players associated with this season
+    const seasonClubs = await SeasonClub.find({ season: id });
+    const seasonPlayers = await SeasonPlayer.find({ season: id });
+    
+    const clubIds = seasonClubs.map(sc => sc.club);
+    const playerIds = seasonPlayers.map(sp => sp.player);
+
+    // Delete all season-club and season-player associations first
     await SeasonClub.deleteMany({ season: id });
     await SeasonPlayer.deleteMany({ season: id });
     
-    // Clear season references from clubs and players, and reset player club assignments
-    await Club.updateMany(
-      { season: id },
-      { $unset: { season: 1 } }
-    );
-    await Player.updateMany(
-      { season: id },
-      { $unset: { season: 1 }, $set: { currentClub: null } } // Keep currentClub field but set to null
-    );
+    // For each club, check if it exists in other seasons
+    for (const clubId of clubIds) {
+      const otherSeasonClubs = await SeasonClub.findOne({ 
+        club: clubId, 
+        season: { $ne: id } 
+      });
+      
+      if (!otherSeasonClubs) {
+        // Club doesn't exist in other seasons, delete it completely
+        await Club.findByIdAndDelete(clubId);
+      } else {
+        // Club exists in other seasons, just remove the season reference
+        await Club.updateOne(
+          { _id: clubId },
+          { $unset: { season: 1 } }
+        );
+      }
+    }
+
+    // For each player, check if it exists in other seasons
+    for (const playerId of playerIds) {
+      const otherSeasonPlayers = await SeasonPlayer.findOne({ 
+        player: playerId, 
+        season: { $ne: id } 
+      });
+      
+      if (!otherSeasonPlayers) {
+        // Player doesn't exist in other seasons, delete it completely
+        await Player.findByIdAndDelete(playerId);
+      } else {
+        // Player exists in other seasons, just remove the season reference and reset club
+        await Player.updateOne(
+          { _id: playerId },
+          { $unset: { season: 1 }, $set: { currentClub: null } }
+        );
+      }
+    }
 
     res.status(200).json({
       success: true,
