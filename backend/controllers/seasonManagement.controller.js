@@ -303,8 +303,14 @@ export const getSeasonPlayers = async (req, res, next) => {
     }
 
     const seasonPlayers = await SeasonPlayer.find(query)
-      .populate('player', 'name position jerseyNumber currentClub')
-      .populate('player.currentClub', 'name')
+      .populate({
+        path: 'player',
+        select: 'name position jerseyNumber currentClub',
+        populate: {
+          path: 'currentClub',
+          select: 'name _id'
+        }
+      })
       .sort({ 'player.name': 1 });
 
     const players = seasonPlayers
@@ -321,6 +327,17 @@ export const getSeasonPlayers = async (req, res, next) => {
           seasonPlayerId: sp._id
         };
       });
+
+    console.log('Season players data:', {
+      seasonId,
+      totalPlayers: players.length,
+      playersWithClubs: players.filter(p => p.currentClub).length,
+      freeAgents: players.filter(p => !p.currentClub).length,
+      samplePlayer: players[0] ? {
+        name: players[0].name,
+        currentClub: players[0].currentClub
+      } : null
+    });
 
     res.status(200).json({
       success: true,

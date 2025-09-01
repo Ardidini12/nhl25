@@ -133,8 +133,14 @@ publicRouter.get('/seasons/:seasonId/players', async (req, res) => {
       season: seasonId,
       isAssigned: true 
     })
-      .populate('player', 'name position jerseyNumber currentClub')
-      .populate('player.currentClub', 'name')
+      .populate({
+        path: 'player',
+        select: 'name position jerseyNumber currentClub',
+        populate: {
+          path: 'currentClub',
+          select: 'name _id'
+        }
+      })
       .sort({ 'player.name': 1 });
 
     // Return players in assigned clubs AND free agents (but exclude players in unassigned clubs)

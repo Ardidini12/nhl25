@@ -47,6 +47,14 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
+      // If we have cached user data and this is not a forced refresh, skip the API call
+      const cachedUserData = localStorage.getItem('userData');
+      if (cachedUserData && !showError) {
+        console.log('Using cached user data, skipping API call');
+        setLoading(false);
+        return;
+      }
+
       console.log('Making API call to refresh user data...');
       const response = await fetch(`${apiConfig.baseURL}${API_ENDPOINTS.AUTH.ME}`, {
         headers: {

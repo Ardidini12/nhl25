@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSocket } from '../contexts/SocketContext';
 import './XBHLViewer.css';
 
 // Main XBHL Viewer Component
@@ -167,22 +168,42 @@ const PublicSeasonDetails = ({ season, league, onBack, onBackToLeagues }) => {
   const [error, setError] = useState('');
 
   const API_BASE = 'http://localhost:8080/api/v1';
+  const { socket } = useSocket();
 
   const fetchSeasonData = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch clubs for this season
-      const clubsRes = await fetch(`${API_BASE}/public/seasons/${season._id}/clubs`);
+      // Fetch assigned clubs for this season (same as admin panel)
+      const clubsRes = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}?assigned=true`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
       if (clubsRes.ok) {
         const clubsData = await clubsRes.json();
         if (clubsData.success) setClubs(clubsData.data);
       }
 
-      // Fetch players for this season
-      const playersRes = await fetch(`${API_BASE}/public/seasons/${season._id}/players`);
+      // Fetch players for this season (same as admin panel)
+      const playersRes = await fetch(`${API_BASE}/admin/season-management/players/${season._id}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
       if (playersRes.ok) {
         const playersData = await playersRes.json();
-        if (playersData.success) setPlayers(playersData.data);
+        if (playersData.success) {
+          console.log('XBHL Viewer: Fetched players data:', {
+            total: playersData.data.length,
+            playersWithClubs: playersData.data.filter(p => p.currentClub).length,
+            freeAgents: playersData.data.filter(p => !p.currentClub).length,
+            samplePlayer: playersData.data[0] ? {
+              name: playersData.data[0].name,
+              currentClub: playersData.data[0].currentClub
+            } : null
+          });
+          setPlayers(playersData.data);
+        }
       }
     } catch (error) {
       setError('Failed to fetch season data');
@@ -191,14 +212,52 @@ const PublicSeasonDetails = ({ season, league, onBack, onBackToLeagues }) => {
     }
   }, [season._id]);
 
-  // Auto-refresh data every 10 seconds to reflect admin changes
+  // Socket subscriptions for real-time updates
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchSeasonData();
-    }, 10000); // Refresh every 10 seconds
+    if (!socket || !season?._id) {
+      console.log('XBHL Viewer: No socket or season ID:', { socket: !!socket, seasonId: season?._id });
+      return;
+    }
 
-    return () => clearInterval(interval);
-  }, [fetchSeasonData]);
+    console.log('XBHL Viewer: Joining season room:', season._id);
+    socket.emit('season:join', season._id);
+
+    const handlePlayerClubUpdated = ({ seasonId, playerId, currentClub }) => {
+      console.log('XBHL Viewer: Player club updated event received:', { seasonId, playerId, currentClub });
+      if (seasonId?.toString() === season._id?.toString()) {
+        console.log('XBHL Viewer: Refreshing data for current season');
+        setTimeout(() => fetchSeasonData(), 100); // Small delay to ensure backend update
+      } else {
+        console.log('XBHL Viewer: Event for different season, ignoring');
+      }
+    };
+
+    const handleClubAssigned = ({ seasonId }) => {
+      console.log('XBHL Viewer: Club assigned event received:', { seasonId });
+      if (seasonId?.toString() === season._id?.toString()) {
+        setTimeout(() => fetchSeasonData(), 100);
+      }
+    };
+
+    const handlePlayerAssigned = ({ seasonId }) => {
+      console.log('XBHL Viewer: Player assigned event received:', { seasonId });
+      if (seasonId?.toString() === season._id?.toString()) {
+        setTimeout(() => fetchSeasonData(), 100);
+      }
+    };
+
+    socket.on('season:player-club-updated', handlePlayerClubUpdated);
+    socket.on('season:club-assigned', handleClubAssigned);
+    socket.on('season:player-assigned', handlePlayerAssigned);
+
+    return () => {
+      console.log('XBHL Viewer: Leaving season room:', season._id);
+      socket.emit('season:leave', season._id);
+      socket.off('season:player-club-updated', handlePlayerClubUpdated);
+      socket.off('season:club-assigned', handleClubAssigned);
+      socket.off('season:player-assigned', handlePlayerAssigned);
+    };
+  }, [socket, season?._id, fetchSeasonData]);
 
   useEffect(() => {
     fetchSeasonData();
@@ -289,9 +348,30 @@ const PublicSeasonDetails = ({ season, league, onBack, onBackToLeagues }) => {
           <div className="roster-view">
             <h4>Team Rosters</h4>
             {clubs.filter(club => club && club.name).map(club => {
-              const clubPlayers = players.filter(player => 
-                player && player.currentClub?._id === club._id
-              );
+              const clubPlayers = players.filter(player => {
+                if (!player || !player.currentClub) return false;
+                
+                // Handle different possible formats of currentClub
+                let playerClubId;
+                if (typeof player.currentClub === 'string') {
+                  playerClubId = player.currentClub;
+                } else if (player.currentClub._id) {
+                  playerClubId = player.currentClub._id;
+                }
+                
+                return playerClubId && playerClubId.toString() === club._id.toString();
+              });
+              
+              console.log('XBHL Viewer: Club roster:', {
+                clubName: club.name,
+                clubId: club._id,
+                playersCount: clubPlayers.length,
+                allPlayers: players.length,
+                samplePlayer: players[0] ? {
+                  name: players[0].name,
+                  currentClub: players[0].currentClub
+                } : null
+              });
               
               return (
                 <div key={club._id} className="club-roster">

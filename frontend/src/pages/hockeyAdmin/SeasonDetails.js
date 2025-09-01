@@ -55,6 +55,15 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
       if (playersRes.ok) {
         const playersData = await playersRes.json();
         if (playersData.success) {
+          console.log('Fetched season players:', {
+            total: playersData.data.length,
+            playersWithClubs: playersData.data.filter(p => p.currentClub).length,
+            freeAgents: playersData.data.filter(p => !p.currentClub).length,
+            samplePlayer: playersData.data[0] ? {
+              name: playersData.data[0].name,
+              currentClub: playersData.data[0].currentClub
+            } : null
+          });
           setSeasonPlayers(playersData.data);
         }
       }
@@ -134,10 +143,13 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
     const handlePlayerClubUpdated = ({ seasonId, playerId, currentClub }) => {
       console.log('Socket: Player club updated', { seasonId, playerId, currentClub });
       if (seasonId?.toString() !== season._id?.toString()) return;
+      
       // Force refresh to get updated data from backend
       setTimeout(() => {
         console.log('Refreshing season data after player club update');
         fetchSeasonData();
+        // Also refresh parent data to ensure XBHL viewer updates
+        onRefresh();
       }, 100);
     };
 
@@ -156,7 +168,7 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
       socket.off('season:player-removed', handlePlayerRemoved);
       socket.off('season:player-club-updated', handlePlayerClubUpdated);
     };
-  }, [socket, season?._id, fetchSeasonData]);
+  }, [socket, season?._id, fetchSeasonData, onRefresh]);
 
   const handleAssignClub = async (clubId) => {
     try {
@@ -354,6 +366,9 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
 
       const pid = playerId?.toString();
       const cid = clubId && clubId !== 'free-agents' ? clubId?.toString() : null;
+      
+      console.log('Making API call with:', { pid, cid });
+      
       const response = await fetch(`${API_BASE}/admin/season-management/roster/players/${pid}/club`, {
         method: 'PUT',
         headers: {
@@ -374,6 +389,7 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
       console.log('Backend assignment result:', result);
 
       // Refresh data after successful backend update
+      console.log('Refreshing data after player club assignment...');
       await fetchSeasonData();
       onRefresh();
     } catch (error) {

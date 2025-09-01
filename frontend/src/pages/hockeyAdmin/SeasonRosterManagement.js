@@ -218,8 +218,25 @@ const SeasonRosterManagement = ({
 
   // Group players by club - recalculate whenever seasonPlayers changes
   const playersByClub = React.useMemo(() => {
+    console.log('Grouping players by club:', {
+      totalPlayers: seasonPlayers.length,
+      samplePlayer: seasonPlayers[0] ? {
+        name: seasonPlayers[0].name,
+        currentClub: seasonPlayers[0].currentClub
+      } : null
+    });
+    
     return seasonPlayers.reduce((acc, player) => {
-      const clubId = player.currentClub?._id || 'free-agents';
+      // Handle different possible formats of currentClub
+      let clubId = 'free-agents';
+      if (player.currentClub) {
+        if (typeof player.currentClub === 'string') {
+          clubId = player.currentClub;
+        } else if (player.currentClub._id) {
+          clubId = player.currentClub._id;
+        }
+      }
+      
       if (!acc[clubId]) {
         acc[clubId] = [];
       }
@@ -270,6 +287,12 @@ const SeasonRosterManagement = ({
               <div className="club-cards">
                 {seasonClubs.map(club => {
                   const clubPlayers = playersByClub[club._id] || [];
+                  console.log('Rendering club card:', {
+                    clubId: club._id,
+                    clubName: club.name,
+                    playersCount: clubPlayers.length,
+                    playersByClubKeys: Object.keys(playersByClub)
+                  });
                   return (
                     <DraggableClubCard key={club._id} club={club} players={clubPlayers} assigned={true} />
                   );

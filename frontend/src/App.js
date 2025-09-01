@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ConnectionProvider } from './contexts/ConnectionContext';
+import { SocketProvider } from './contexts/SocketContext';
 import Navbar from './components/Navbar';
 import ConnectionStatus from './components/ConnectionStatus';
 import Home from './pages/Home';
@@ -101,20 +102,22 @@ function App() {
   return (
     <ConnectionProvider>
       <AuthProvider>
-        <Router
-          future={{
-            v7_startTransition: true,
-            v7_relativeSplatPath: true
-          }}
-        >
-          <div className="App">
-            <ConnectionStatus />
-            <Navbar />
-            <RoutePersistence>
-              <AppRoutes />
-            </RoutePersistence>
-          </div>
-        </Router>
+        <SocketProvider>
+          <Router
+            future={{
+              v7_startTransition: true,
+              v7_relativeSplatPath: true
+            }}
+          >
+            <div className="App">
+              <ConnectionStatus />
+              <Navbar />
+              <RoutePersistence>
+                <AppRoutes />
+              </RoutePersistence>
+            </div>
+          </Router>
+        </SocketProvider>
       </AuthProvider>
     </ConnectionProvider>
   );
