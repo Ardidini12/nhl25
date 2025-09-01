@@ -173,23 +173,15 @@ const PublicSeasonDetails = ({ season, league, onBack, onBackToLeagues }) => {
   const fetchSeasonData = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch assigned clubs for this season (same as admin panel)
-      const clubsRes = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}?assigned=true`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
+      // Fetch assigned clubs for this season
+      const clubsRes = await fetch(`${API_BASE}/public/seasons/${season._id}/clubs`);
       if (clubsRes.ok) {
         const clubsData = await clubsRes.json();
         if (clubsData.success) setClubs(clubsData.data);
       }
 
-      // Fetch players for this season (same as admin panel)
-      const playersRes = await fetch(`${API_BASE}/admin/season-management/players/${season._id}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
+      // Fetch players for this season
+      const playersRes = await fetch(`${API_BASE}/public/seasons/${season._id}/players`);
       if (playersRes.ok) {
         const playersData = await playersRes.json();
         if (playersData.success) {

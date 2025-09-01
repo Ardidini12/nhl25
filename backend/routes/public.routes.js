@@ -143,17 +143,20 @@ publicRouter.get('/seasons/:seasonId/players', async (req, res) => {
       })
       .sort({ 'player.name': 1 });
 
-    // Return players in assigned clubs AND free agents (but exclude players in unassigned clubs)
+    // Return all assigned players (same as admin panel)
     const players = seasonPlayers
-      .filter(sp => sp.player) // Filter out null players
-      .map(sp => sp.player)
-      .filter(player => {
-        // Include free agents (no club) or players in assigned clubs
-        // Exclude players in unassigned clubs
-        if (!player.currentClub) {
-          return true; // Free agents - show in public view
+      .filter(sp => sp.player) // Filter out entries where player is null
+      .map(sp => {
+        const playerData = sp.player.toObject();
+        // Ensure currentClub is always present (null for free agents)
+        if (playerData.currentClub === undefined) {
+          playerData.currentClub = null;
         }
-        return assignedClubIds.includes(player.currentClub._id); // Only assigned clubs
+        return {
+          ...playerData,
+          isAssigned: sp.isAssigned,
+          seasonPlayerId: sp._id
+        };
       });
 
     res.status(200).json({
