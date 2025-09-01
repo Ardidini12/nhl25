@@ -109,25 +109,41 @@ const SeasonRosterManagement = ({
     }
   };
 
-  // Handle player to club assignment
+  // Handle player to club assignment (optimistic update)
   const handlePlayerToClub = async (playerId, clubId) => {
-    // Ensure IDs are strings for consistent comparison
     const pid = String(playerId);
     const cid = clubId ? String(clubId) : null;
+
+    // keep a snapshot for rollback
+    const original = seasonPlayers.find(p => p._id?.toString() === pid)?.currentClub ?? null;
+
+    // optimistic UI: move the card immediately
+    setSeasonPlayers(prev =>
+      prev.map(p =>
+        p._id?.toString() === pid
+          ? { ...p, currentClub: cid ?? null }
+          : p
+      )
+    );
+
     try {
-      console.log('Handling player assignment:', { playerId: pid, clubId: cid });
-
-      // Call the backend operation to persist the change
       await onPlayerClubAssignment(pid, cid);
-
       setDragMessage(`Player ${cid ? 'assigned to club' : 'moved to free agents'} successfully!`);
       setTimeout(() => setDragMessage(''), 2000);
-      
-      // Force refresh to ensure UI updates
+
+      // sync with backend (keeps viewer + other tabs correct)
       onRefresh();
     } catch (error) {
-      console.error('Failed to assign player to club:', error);
-      setDragMessage(`Failed to assign player: ${error.message}`);
+      // rollback on failure
+      setSeasonPlayers(prev =>
+        prev.map(p =>
+          p._id?.toString() === pid
+            ? { ...p, currentClub: original }
+            : p
+        )
+      );
+      console.error('Player assignment failed:', error);
+      setDragMessage(`Failed to update player: ${error.message}`);
       setTimeout(() => setDragMessage(''), 5000);
     }
   };

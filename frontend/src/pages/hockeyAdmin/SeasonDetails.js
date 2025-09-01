@@ -77,8 +77,8 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
           const allAvailableClubs = [...unassignedClubs, ...availClubsData.data];
           
           // Deduplicate by _id to prevent duplicate clubs
-          const uniqueAvailableClubs = allAvailableClubs.filter((club, index, self) => 
-            index === self.findIndex(c => c._id === club._id)
+          const uniqueAvailableClubs = allAvailableClubs.filter((club, index, self) =>
+            index === self.findIndex(c => String(c._id) === String(club._id))
           );
           
           console.log('Available clubs:', {
@@ -143,12 +143,26 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
     const handlePlayerClubUpdated = ({ seasonId, playerId, currentClub }) => {
       console.log('Socket: Player club updated', { seasonId, playerId, currentClub });
       if (seasonId?.toString() !== season._id?.toString()) return;
-      
-      // Force refresh to get updated data from backend
+
+      // instant local update so the card moves right away
+      setSeasonPlayers(prev =>
+        prev.map(p =>
+          p._id?.toString() === String(playerId)
+            ? {
+                ...p,
+                // currentClub may be an object or id; normalize to something your UI understands
+                currentClub: currentClub
+                  ? (currentClub._id || currentClub)
+                  : null
+              }
+            : p
+        )
+      );
+
+      // then do a light refresh to stay perfectly in sync
       setTimeout(() => {
         console.log('Refreshing season data after player club update');
         fetchSeasonData();
-        // Also refresh parent data to ensure XBHL viewer updates
         onRefresh();
       }, 100);
     };
