@@ -1,0 +1,31 @@
+{
+  "watch": [
+    "app.js",
+    "routes/",
+    "controllers/",
+    "models/",
+    "middlewares/",
+    "config/",
+    "database/",
+    "utils/"
+  ],
+  "ext": "js,json,mjs",
+  "ignore": [
+    "node_modules/",
+    "*.test.js",
+    "*.spec.js",
+    "*.log",
+    ".git",
+    "dist/",
+    "build/"
+  ],
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "delay": 500,
+  "legacyWatch": true,
+  "verbose": true,
+  "restartable": "rs",
+  "colours": true,
+  "runOnChangeOnly": false
+} 

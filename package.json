@@ -1,0 +1,46 @@
+{
+  "name": "xblade-app",
+  "version": "1.0.0",
+  "description": "XBLADE Hockey League Management System",
+  "main": "dev-start.js",
+  "private": true,
+  "scripts": {
+    "dev": "node dev-start.js",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run start",
+    "dev:clear": "npm run clean && node dev-start.js",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && npm start",
+    "clean": "npm run clean:backend && npm run clean:frontend",
+    "clean:backend": "cd backend && npm run clean",
+    "clean:frontend": "cd frontend && npm run clear-cache",
+    "reset": "npm run clean && npm run install:all",
+    "kill": "node -e \"try { process.platform === 'win32' ? require('child_process').execSync('taskkill /f /im node.exe 2>nul', {stdio: 'ignore'}) : require('child_process').execSync('pkill -f \\\"node\\\" 2>/dev/null', {stdio: 'ignore'}); } catch(e) { console.log('No processes to kill'); }\"",
+    "restart": "npm run kill && npm run dev"
+  },
+  "keywords": [
+    "hockey",
+    "league",
+    "management",
+    "react",
+    "nodejs",
+    "express",
+    "mongodb"
+  ],
+  "author": "XBLADE Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "dependencies": {
+    "mongodb": "^6.19.0"
+  }
+}
