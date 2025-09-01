@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSocket } from '../../contexts/SocketContext';
 import SeasonRosterManagement from './SeasonRosterManagement';
 
 const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) => {
@@ -15,6 +16,7 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
   const [editingPlayer, setEditingPlayer] = useState(null);
 
   const API_BASE = 'http://localhost:8080/api/v1';
+  const { socket } = useSocket();
 
   const fetchSeasonData = useCallback(async () => {
     setLoading(true);
@@ -106,12 +108,63 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
     fetchSeasonData();
   }, [fetchSeasonData]);
 
+  // Socket subscriptions for real-time updates
+  useEffect(() => {
+    if (!socket || !season?._id) return;
+
+    console.log('Joining season room:', season._id);
+    socket.emit('season:join', season._id);
+
+    const handleClubAssigned = ({ seasonId }) => {
+      console.log('Socket: Club assigned', { seasonId });
+      if (seasonId?.toString() === season._id?.toString()) fetchSeasonData();
+    };
+    const handleClubRemoved = ({ seasonId }) => {
+      console.log('Socket: Club removed', { seasonId });
+      if (seasonId?.toString() === season._id?.toString()) fetchSeasonData();
+    };
+    const handlePlayerAssigned = ({ seasonId }) => {
+      console.log('Socket: Player assigned', { seasonId });
+      if (seasonId?.toString() === season._id?.toString()) fetchSeasonData();
+    };
+    const handlePlayerRemoved = ({ seasonId }) => {
+      console.log('Socket: Player removed', { seasonId });
+      if (seasonId?.toString() === season._id?.toString()) fetchSeasonData();
+    };
+    const handlePlayerClubUpdated = ({ seasonId, playerId, currentClub }) => {
+      console.log('Socket: Player club updated', { seasonId, playerId, currentClub });
+      if (seasonId?.toString() !== season._id?.toString()) return;
+      // Force refresh to get updated data from backend
+      setTimeout(() => {
+        console.log('Refreshing season data after player club update');
+        fetchSeasonData();
+      }, 100);
+    };
+
+    socket.on('season:club-assigned', handleClubAssigned);
+    socket.on('season:club-removed', handleClubRemoved);
+    socket.on('season:player-assigned', handlePlayerAssigned);
+    socket.on('season:player-removed', handlePlayerRemoved);
+    socket.on('season:player-club-updated', handlePlayerClubUpdated);
+
+    return () => {
+      console.log('Leaving season room:', season._id);
+      socket.emit('season:leave', season._id);
+      socket.off('season:club-assigned', handleClubAssigned);
+      socket.off('season:club-removed', handleClubRemoved);
+      socket.off('season:player-assigned', handlePlayerAssigned);
+      socket.off('season:player-removed', handlePlayerRemoved);
+      socket.off('season:player-club-updated', handlePlayerClubUpdated);
+    };
+  }, [socket, season?._id, fetchSeasonData]);
+
   const handleAssignClub = async (clubId) => {
     try {
       console.log('Assigning club:', { clubId, seasonId: season._id });
       
       // Check if club is already assigned to prevent duplicates
-      const alreadyAssigned = seasonClubs.find(c => c._id === clubId);
+      const cid = clubId?.toString();
+      const alreadyAssigned = seasonClubs.find(c => c._id?.toString() === cid);
       if (alreadyAssigned) {
         setError('Club is already assigned to this season');
         setTimeout(() => setError(''), 3000);
@@ -119,16 +172,16 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
       }
       
       // Optimistic update - update UI immediately
-      const clubToAssign = availableClubs.find(c => c._id === clubId);
+      const clubToAssign = availableClubs.find(c => c._id?.toString() === cid);
       if (clubToAssign) {
-        setAvailableClubs(prev => prev.filter(c => c._id !== clubId));
+        setAvailableClubs(prev => prev.filter(c => c._id?.toString() !== cid));
         setSeasonClubs(prev => [...prev, { ...clubToAssign, isAssigned: true }]);
       }
 
       // First try to update assignment status if club already exists in season as unassigned
       let assignmentSuccessful = false;
       try {
-        const updateResponse = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}/${clubId}/assignment`, {
+        const updateResponse = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}/${cid}/assignment`, {
           method: 'PUT',
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -157,7 +210,7 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
           },
           body: JSON.stringify({
             seasonId: season._id,
-            clubId: clubId
+            clubId: cid
           })
         });
 
@@ -178,7 +231,8 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
   const handleRemoveClub = async (clubId) => {
     try {
       // Check if club is actually assigned before removing
-      const isCurrentlyAssigned = seasonClubs.find(c => c._id === clubId);
+      const cid = clubId?.toString();
+      const isCurrentlyAssigned = seasonClubs.find(c => c._id?.toString() === cid);
       if (!isCurrentlyAssigned) {
         setError('Club is not currently assigned to this season');
         setTimeout(() => setError(''), 3000);
@@ -186,12 +240,12 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
       }
       
       // Optimistic update - move club from assigned to available immediately
-      const clubToRemove = seasonClubs.find(c => c._id === clubId);
+      const clubToRemove = seasonClubs.find(c => c._id?.toString() === cid);
       if (clubToRemove) {
-        setSeasonClubs(prev => prev.filter(c => c._id !== clubId));
+        setSeasonClubs(prev => prev.filter(c => c._id?.toString() !== cid));
         // Check if club is already in available clubs to prevent duplicates
         setAvailableClubs(prev => {
-          const alreadyInAvailable = prev.find(c => c._id === clubId);
+          const alreadyInAvailable = prev.find(c => c._id?.toString() === cid);
           if (alreadyInAvailable) {
             return prev;
           }
@@ -200,7 +254,7 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
       }
 
       // Mark as unassigned instead of deleting completely
-      const response = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}/${clubId}/assignment`, {
+      const response = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}/${cid}/assignment`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -228,12 +282,15 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
   const handleAssignPlayer = async (playerId) => {
     try {
       // Optimistic update - update UI immediately
-      const playerToAssign = availablePlayers.find(p => p._id === playerId);
+      // Find the player by comparing string values to account for ObjectId instances
+      const playerToAssign = availablePlayers.find(p => p._id?.toString() === playerId?.toString());
       if (playerToAssign) {
-        setAvailablePlayers(prev => prev.filter(p => p._id !== playerId));
+        // Remove from available players and add to season players using string comparison
+        setAvailablePlayers(prev => prev.filter(p => p._id?.toString() !== playerId?.toString()));
         setSeasonPlayers(prev => [...prev, { ...playerToAssign, isAssigned: true }]);
       }
 
+      const pid = playerId?.toString();
       const response = await fetch(`${API_BASE}/admin/season-management/players`, {
         method: 'POST',
         headers: {
@@ -242,7 +299,7 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
         },
         body: JSON.stringify({
           seasonId: season._id,
-          playerId: playerId
+          playerId: pid
         })
       });
 
@@ -262,13 +319,15 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
   const handleRemovePlayer = async (playerId) => {
     try {
       // Optimistic update - move player from assigned to available immediately
-      const playerToRemove = seasonPlayers.find(p => p._id === playerId);
+      const playerToRemove = seasonPlayers.find(p => p._id?.toString() === playerId?.toString());
       if (playerToRemove) {
-        setSeasonPlayers(prev => prev.filter(p => p._id !== playerId));
+        // Move back to available players using string comparison for ids
+        setSeasonPlayers(prev => prev.filter(p => p._id?.toString() !== playerId?.toString()));
         setAvailablePlayers(prev => [...prev, { ...playerToRemove, isAssigned: false }]);
       }
 
-      const response = await fetch(`${API_BASE}/admin/season-management/players/${season._id}/${playerId}`, {
+      const pid = playerId?.toString();
+      const response = await fetch(`${API_BASE}/admin/season-management/players/${season._id}/${pid}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -293,14 +352,16 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
     try {
       console.log('Assigning player to club:', { playerId, clubId });
 
-      const response = await fetch(`${API_BASE}/admin/season-management/roster/players/${playerId}/club`, {
+      const pid = playerId?.toString();
+      const cid = clubId && clubId !== 'free-agents' ? clubId?.toString() : null;
+      const response = await fetch(`${API_BASE}/admin/season-management/roster/players/${pid}/club`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          currentClub: clubId && clubId !== 'free-agents' ? clubId : null
+          currentClub: cid
         })
       });
 
@@ -312,23 +373,8 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
       const result = await response.json();
       console.log('Backend assignment result:', result);
 
-      // Immediately update the local state with the backend result
-      setSeasonPlayers(prevPlayers => 
-        prevPlayers.map(player => 
-          player._id === playerId 
-            ? { 
-                ...player, 
-                currentClub: result.data.currentClub || null
-              }
-            : player
-        )
-      );
-
-      // Small delay then force refresh to ensure complete sync
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Refresh data after successful backend update
       await fetchSeasonData();
-      
-      // Refresh parent data to ensure XBHL viewer updates  
       onRefresh();
     } catch (error) {
       console.error('Error updating player club assignment:', error);
@@ -580,105 +626,153 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
       </div>
 
       <div className="league-tab-content">
-                {activeTab === 'clubs' && (
+        {activeTab === 'clubs' && (
           <div className="season-management">
             {/* Club Creation Form */}
             <form onSubmit={(e) => handleCreateClub(e)} className="form">
               <h3>Create New Club</h3>
               <div className="form-row">
                 <div className="form-group">
-                  <label>Club Name:</label>
-                  <input
-                    type="text"
-                    value={newClub.name}
-                    onChange={(e) => setNewClub({...newClub, name: e.target.value})}
+                  <label>Name</label>
+                  <input 
+                    type="text" 
+                    value={newClub.name} 
+                    onChange={(e) => setNewClub({ ...newClub, name: e.target.value })} 
                     required
                   />
                 </div>
                 <div className="form-group">
-                                      <label>Logo URL (optional):</label>
-                  <input
-                    type="url"
-                    value={newClub.webUrl}
-                    onChange={(e) => setNewClub({...newClub, webUrl: e.target.value})}
+                  <label>Website URL</label>
+                  <input 
+                    type="text" 
+                    value={newClub.webUrl} 
+                    onChange={(e) => setNewClub({ ...newClub, webUrl: e.target.value })} 
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Description</label>
+                  <textarea 
+                    value={newClub.description} 
+                    onChange={(e) => setNewClub({ ...newClub, description: e.target.value })} 
                   />
                 </div>
               </div>
-              <div className="form-group">
-                <label>Description (optional):</label>
-                <textarea
-                  value={newClub.description}
-                  onChange={(e) => setNewClub({...newClub, description: e.target.value})}
-                  rows="2"
-                />
-              </div>
-              <button type="submit" disabled={loading}>
-                {loading ? 'Creating...' : 'Create Club'}
+              <button 
+                type="submit" 
+                className="btn"
+                disabled={loading}
+              >
+                Create
               </button>
             </form>
 
-            {/* Clubs List */}
-            <div className="data-table">
-              <h3>All Clubs in {season.name} ({seasonClubs.length + availableClubs.filter(c => c.isAssigned === false).length} total)</h3>
-              {(seasonClubs.length === 0 && availableClubs.filter(c => c.isAssigned === false).length === 0) ? (
-                <p>No clubs created in this season yet.</p>
+            {/* Edit Club Modal */}
+            {editingClub && (
+              <div className="modal-overlay">
+                <div className="modal">
+                  <form onSubmit={handleUpdateClub}>
+                    <h3>Edit Club</h3>
+                    <div className="form-group">
+                      <label>Name</label>
+                      <input 
+                        type="text" 
+                        value={editingClub.name} 
+                        onChange={(e) => setEditingClub({ ...editingClub, name: e.target.value })} 
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Website URL</label>
+                      <input 
+                        type="text" 
+                        value={editingClub.webUrl || ''} 
+                        onChange={(e) => setEditingClub({ ...editingClub, webUrl: e.target.value })} 
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Description</label>
+                      <textarea 
+                        value={editingClub.description || ''} 
+                        onChange={(e) => setEditingClub({ ...editingClub, description: e.target.value })} 
+                      />
+                    </div>
+                    <div className="modal-actions">
+                      <button type="button" onClick={() => setEditingClub(null)} className="btn btn-secondary">
+                        Cancel
+                      </button>
+                      <button type="submit" className="btn" disabled={loading}>
+                        Update
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Club List */}
+            <div className="club-list">
+              <h3>Season Clubs</h3>
+              {seasonClubs.length === 0 ? (
+                <p>No clubs assigned to this season yet.</p>
               ) : (
-                // Show both assigned and unassigned clubs in management
-                [...seasonClubs, ...availableClubs.filter(c => c.isAssigned === false)].map(club => (
-                  <div key={club._id} className="data-item">
-                    {editingClub && editingClub._id === club._id ? (
-                      <form onSubmit={handleUpdateClub}>
-                        <div className="form-row">
-                          <input
-                            type="text"
-                            value={editingClub.name}
-                            onChange={(e) => setEditingClub({...editingClub, name: e.target.value})}
-                            required
-                          />
-                          <input
-                            type="url"
-                            value={editingClub.webUrl || ''}
-                            onChange={(e) => setEditingClub({...editingClub, webUrl: e.target.value})}
-                            placeholder="Logo URL"
-                          />
-                          <input
-                            type="text"
-                            value={editingClub.description || ''}
-                            onChange={(e) => setEditingClub({...editingClub, description: e.target.value})}
-                            placeholder="Description"
-                          />
-                          <div className="item-actions">
-                            <button type="submit" className="btn btn-small btn-primary">Save</button>
-                            <button type="button" className="btn btn-small btn-secondary" onClick={() => setEditingClub(null)}>Cancel</button>
-                          </div>
-                        </div>
-                      </form>
-                    ) : (
-                      <>
-                        <div>
-                          <strong>{club.name}</strong>
-                          {club.isAssigned === false && <span className="badge-unassigned"> (Unassigned)</span>}
-                          {club.webUrl && <p><a href={club.webUrl} target="_blank" rel="noopener noreferrer">Logo</a></p>}
-                          {club.description && <p>{club.description}</p>}
-                        </div>
-                        <div className="item-actions">
-                          <button 
-                            className="btn btn-small btn-secondary"
-                            onClick={() => handleEditClub(club)}
-                            disabled={loading}
-                          >
-                            Edit
-                          </button>
-                          <button 
-                            className="btn btn-small btn-danger"
-                            onClick={() => handleDeleteClub(club._id)}
-                            disabled={loading}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </>
-                    )}
+                seasonClubs.map((club) => (
+                  <div className="item-card" key={club._id}>
+                    <div className="item-info">
+                      <h5>{club.name}</h5>
+                      {club.webUrl && <p>{club.webUrl}</p>}
+                      {club.description && <p>{club.description}</p>}
+                    </div>
+                    <div className="item-actions">
+                      <button 
+                        className="btn btn-small btn-secondary"
+                        onClick={() => handleEditClub(club)}
+                        disabled={loading}
+                      >
+                        Edit
+                      </button>
+                      <button 
+                        className="btn btn-small btn-danger"
+                        onClick={() => handleRemoveClub(club._id)}
+                        disabled={loading}
+                      >
+                        Unassign
+                      </button>
+                      <button 
+                        className="btn btn-small btn-danger"
+                        onClick={() => handleDeleteClub(club._id)}
+                        disabled={loading}
+                        style={{ marginLeft: '5px' }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Available Clubs */}
+            <div className="available-list">
+              <h3>Available Clubs</h3>
+              {availableClubs.length === 0 ? (
+                <p>No clubs available to add.</p>
+              ) : (
+                availableClubs.map((club) => (
+                  <div className="item-card" key={club._id}>
+                    <div className="item-info">
+                      <h5>{club.name}</h5>
+                      {club.webUrl && <p>{club.webUrl}</p>}
+                      {club.description && <p>{club.description}</p>}
+                    </div>
+                    <div className="item-actions">
+                      <button 
+                        className="btn btn-small btn-primary"
+                        onClick={() => handleAssignClub(club._id)}
+                        disabled={loading}
+                      >
+                        Assign
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -686,134 +780,183 @@ const SeasonDetails = ({ season, league, clubs, players, onBack, onRefresh }) =>
           </div>
         )}
 
-                {activeTab === 'players' && (
+        {activeTab === 'players' && (
           <div className="season-management">
             {/* Player Creation Form */}
             <form onSubmit={(e) => handleCreatePlayer(e)} className="form">
               <h3>Create New Player</h3>
               <div className="form-row">
                 <div className="form-group">
-                  <label>Player Name:</label>
-                  <input
-                    type="text"
-                    value={newPlayer.name}
-                    onChange={(e) => setNewPlayer({...newPlayer, name: e.target.value})}
+                  <label>Name</label>
+                  <input 
+                    type="text" 
+                    value={newPlayer.name} 
+                    onChange={(e) => setNewPlayer({ ...newPlayer, name: e.target.value })} 
                     required
                   />
                 </div>
                 <div className="form-group">
-                  <label>Position:</label>
-                  <input
-                    type="text"
-                    value={newPlayer.position}
-                    onChange={(e) => setNewPlayer({...newPlayer, position: e.target.value})}
+                  <label>Position</label>
+                  <input 
+                    type="text" 
+                    value={newPlayer.position} 
+                    onChange={(e) => setNewPlayer({ ...newPlayer, position: e.target.value })} 
                     required
                   />
                 </div>
                 <div className="form-group">
-                  <label>Jersey Number (optional):</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="99"
-                    value={newPlayer.jerseyNumber}
-                    onChange={(e) => setNewPlayer({...newPlayer, jerseyNumber: e.target.value})}
+                  <label>Jersey Number</label>
+                  <input 
+                    type="number" 
+                    value={newPlayer.jerseyNumber} 
+                    onChange={(e) => setNewPlayer({ ...newPlayer, jerseyNumber: e.target.value })}
                   />
                 </div>
               </div>
-              <button type="submit" disabled={loading}>
-                {loading ? 'Creating...' : 'Create Player'}
+              <button 
+                type="submit" 
+                className="btn"
+                disabled={loading}
+              >
+                Create
               </button>
             </form>
 
-            {/* Players List */}
-            <div className="data-table">
-              <h3>All Players in {season.name} ({seasonPlayers.length} total)</h3>
+            {/* Edit Player Modal */}
+            {editingPlayer && (
+              <div className="modal-overlay">
+                <div className="modal">
+                  <form onSubmit={handleUpdatePlayer}>
+                    <h3>Edit Player</h3>
+                    <div className="form-group">
+                      <label>Name</label>
+                      <input 
+                        type="text" 
+                        value={editingPlayer.name} 
+                        onChange={(e) => setEditingPlayer({ ...editingPlayer, name: e.target.value })} 
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Position</label>
+                      <input 
+                        type="text" 
+                        value={editingPlayer.position} 
+                        onChange={(e) => setEditingPlayer({ ...editingPlayer, position: e.target.value })} 
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Jersey Number</label>
+                      <input 
+                        type="number" 
+                        value={editingPlayer.jerseyNumber || ''} 
+                        onChange={(e) => setEditingPlayer({ ...editingPlayer, jerseyNumber: e.target.value })} 
+                      />
+                    </div>
+                    <div className="modal-actions">
+                      <button type="button" onClick={() => setEditingPlayer(null)} className="btn btn-secondary">
+                        Cancel
+                      </button>
+                      <button type="submit" className="btn" disabled={loading}>
+                        Update
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Player List */}
+            <div className="player-list">
+              <h3>Season Players</h3>
               {seasonPlayers.length === 0 ? (
-                <p>No players created in this season yet.</p>
+                <p>No players assigned to this season yet.</p>
               ) : (
-                seasonPlayers.map(player => (
-                  <div key={player._id} className="data-item">
-                    {editingPlayer && editingPlayer._id === player._id ? (
-                      <form onSubmit={handleUpdatePlayer}>
-                        <div className="form-row">
-                          <input
-                            type="text"
-                            value={editingPlayer.name}
-                            onChange={(e) => setEditingPlayer({...editingPlayer, name: e.target.value})}
-                            required
-                          />
-                          <input
-                            type="text"
-                            value={editingPlayer.position}
-                            onChange={(e) => setEditingPlayer({...editingPlayer, position: e.target.value})}
-                            required
-                          />
-                          <input
-                            type="number"
-                            min="0"
-                            max="99"
-                            value={editingPlayer.jerseyNumber || ''}
-                            onChange={(e) => setEditingPlayer({...editingPlayer, jerseyNumber: e.target.value})}
-                            placeholder="Jersey #"
-                          />
-                          <div className="item-actions">
-                            <button type="submit" className="btn btn-small btn-primary">Save</button>
-                            <button type="button" className="btn btn-small btn-secondary" onClick={() => setEditingPlayer(null)}>Cancel</button>
-                          </div>
-                        </div>
-                      </form>
-                    ) : (
-                      <div>
-                        <div>
-                          <strong>{player.name}</strong>
-                          <p>{player.position} {player.jerseyNumber && `#${player.jerseyNumber}`}</p>
-                          <p>Club: {player.currentClub?.name || 'Free Agent'}</p>
-                        </div>
-                        <div className="item-actions">
-                          <button 
-                            className="btn btn-small btn-secondary"
-                            onClick={() => handleEditPlayer(player)}
-                            disabled={loading}
-                          >
-                            Edit
-                          </button>
-                          <button 
-                            className="btn btn-small btn-danger"
-                            onClick={() => handleDeletePlayer(player._id)}
-                            disabled={loading}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                seasonPlayers.map((player) => (
+                  <div className="item-card" key={player._id}>
+                    <div className="item-info">
+                      <h5>{player.name}</h5>
+                      <p>Position: {player.position}</p>
+                      {player.jerseyNumber && <p>Jersey #: {player.jerseyNumber}</p>}
+                    </div>
+                    <div className="item-actions">
+                      <button 
+                        className="btn btn-small btn-secondary"
+                        onClick={() => handleEditPlayer(player)}
+                        disabled={loading}
+                      >
+                        Edit
+                      </button>
+                      <button 
+                        className="btn btn-small btn-danger"
+                        onClick={() => handleRemovePlayer(player._id)}
+                        disabled={loading}
+                      >
+                        Remove
+                      </button>
+                      <button 
+                        className="btn btn-small btn-danger"
+                        onClick={() => handleDeletePlayer(player._id)}
+                        disabled={loading}
+                        style={{ marginLeft: '5px' }}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
             </div>
-      </div>
+
+            {/* Available Players */}
+            <div className="available-list">
+              <h3>Available Players</h3>
+              {availablePlayers.length === 0 ? (
+                <p>No players available to add.</p>
+              ) : (
+                availablePlayers.map((player) => (
+                  <div className="item-card" key={player._id}>
+                    <div className="item-info">
+                      <h5>{player.name}</h5>
+                      <p>Position: {player.position}</p>
+                      {player.jerseyNumber && <p>Jersey #: {player.jerseyNumber}</p>}
+                    </div>
+                    <div className="item-actions">
+                      <button 
+                        className="btn btn-small btn-primary"
+                        onClick={() => handleAssignPlayer(player._id)}
+                        disabled={loading}
+                      >
+                        Assign
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         )}
 
-                  {activeTab === 'roster' && (
-            <SeasonRosterManagement
-              season={season}
-              seasonClubs={seasonClubs}
-              seasonPlayers={seasonPlayers}
-              availableClubs={availableClubs}
-              availablePlayers={availablePlayers}
-              onAssignClub={handleAssignClub}
-              onRemoveClub={handleRemoveClub}
-              onAssignPlayer={handleAssignPlayer}
-              onRemovePlayer={handleRemovePlayer}
-              onPlayerClubAssignment={handlePlayerClubAssignment}
-              onRefresh={fetchSeasonData}
-              loading={loading}
-              setSeasonClubs={setSeasonClubs}
-              setAvailableClubs={setAvailableClubs}
-              setSeasonPlayers={setSeasonPlayers}
-            />
-          )}
+        {activeTab === 'roster' && (
+          <SeasonRosterManagement
+            season={season}
+            seasonClubs={seasonClubs}
+            seasonPlayers={seasonPlayers}
+            availableClubs={availableClubs}
+            availablePlayers={availablePlayers}
+            onAssignClub={handleAssignClub}
+            onRemoveClub={handleRemoveClub}
+            onAssignPlayer={handleAssignPlayer}
+            onRemovePlayer={handleRemovePlayer}
+            onPlayerClubAssignment={handlePlayerClubAssignment}
+            onRefresh={fetchSeasonData}
+            loading={loading}
+            setSeasonClubs={setSeasonClubs}
+            setAvailableClubs={setAvailableClubs}
+            setSeasonPlayers={setSeasonPlayers}
+          />
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
+import http from 'http';
+import { Server as SocketIOServer } from 'socket.io';
 
 import { PORT, NODE_ENV } from './config/env.js';
 
@@ -61,9 +63,31 @@ app.get('/', (req, res) => {
   res.send('Welcome to the Xblade API!');
 });
 
-app.listen(PORT, async () => {
-  console.log(`Xblade API is running on http://localhost:${PORT} in ${NODE_ENV} mode`);
+// Create HTTP server and attach Socket.IO
+const server = http.createServer(app);
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: ['http://localhost:3000', 'http://localhost:8080', 'http://localhost:8081', 'http://localhost:4173'],
+    credentials: true
+  }
+});
 
+// Expose io instance to routes/controllers via app
+app.set('io', io);
+
+io.on('connection', (socket) => {
+  // Join/leave season rooms for targeted broadcasts
+  socket.on('season:join', (seasonId) => {
+    if (seasonId) socket.join(`season:${seasonId}`);
+  });
+
+  socket.on('season:leave', (seasonId) => {
+    if (seasonId) socket.leave(`season:${seasonId}`);
+  });
+});
+
+server.listen(PORT, async () => {
+  console.log(`Xblade API is running on http://localhost:${PORT} in ${NODE_ENV} mode`);
   await connectToDatabase();
 });
 

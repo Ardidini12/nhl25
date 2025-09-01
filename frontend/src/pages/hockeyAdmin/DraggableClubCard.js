@@ -14,7 +14,8 @@ const DraggableClubCard = ({ club, players = [], assigned = false }) => {
     transition,
     isDragging,
   } = useDraggable({
-    id: club._id,
+    // Always use a string ID for DnD so comparisons work reliably
+    id: club._id?.toString(),
   });
 
   const style = {
@@ -27,15 +28,25 @@ const DraggableClubCard = ({ club, players = [], assigned = false }) => {
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{ ...style, position: 'relative' }}
       {...attributes}
       {...listeners}
       className={`club-card compact ${isDragging ? 'dragging' : ''} ${isExpanded ? 'expanded' : ''}`}
     >
+      {/* Invisible, full-card droppable overlay so collapsed clubs accept drops */}
+      {assigned && (
+        <Droppable
+          id={`club-${club._id}`}
+          className="club-drop-overlay"
+          style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'auto' }}
+        >
+          <div style={{ position: 'absolute', inset: 0, opacity: 0 }} />
+        </Droppable>
+      )}
       <div className="club-header" onClick={(e) => {
         e.stopPropagation();
         setIsExpanded(!isExpanded);
-      }}>
+      }} style={{ position: 'relative', zIndex: 2 }}>
         <div className="club-info">
           <h6>{club.name}</h6>
           {isExpanded && club.webUrl && <span className="club-url">{club.webUrl}</span>}
@@ -49,27 +60,18 @@ const DraggableClubCard = ({ club, players = [], assigned = false }) => {
         </div>
       </div>
       
-      {/* Drop zone for clubs - only show when expanded and club is assigned */}
+      {/* Visible content */}
       {assigned && isExpanded && (
-        <Droppable id={`club-${club._id}`}>
-          <div className="club-players">
-            <div className="player-list-in-club">
-              {players.map(player => (
-                <DraggablePlayerCard key={player._id} player={player} inClub={true} />
-              ))}
-              {players.length === 0 && (
-                <div className="empty-club">Drop players here</div>
-              )}
-            </div>
+        <div className="club-players" style={{ position: 'relative', zIndex: 1 }}>
+          <div className="player-list-in-club">
+            {players.map(player => (
+              <DraggablePlayerCard key={player._id} player={player} inClub={true} />
+            ))}
+            {players.length === 0 && (
+              <div className="empty-club">Drop players here</div>
+            )}
           </div>
-        </Droppable>
-      )}
-      
-      {/* Hidden drop zone for collapsed clubs - use display: none to completely remove from layout */}
-      {assigned && !isExpanded && (
-        <Droppable id={`club-${club._id}`}>
-          <div style={{ display: 'none' }}></div>
-        </Droppable>
+        </div>
       )}
     </div>
   );

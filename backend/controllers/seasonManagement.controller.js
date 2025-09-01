@@ -132,6 +132,16 @@ export const addClubToSeason = async (req, res, next) => {
       .populate('season', 'name')
       .populate('club', 'name');
 
+    // Emit socket event
+    try {
+      const io = req.app.get('io');
+      io && io.to(`season:${seasonId}`).emit('season:club-assigned', {
+        seasonId,
+        clubId,
+        isAssigned: true,
+      });
+    } catch {}
+
     res.status(201).json({
       success: true,
       message: 'Club added to season successfully',
@@ -150,6 +160,15 @@ export const removeClubFromSeason = async (req, res, next) => {
       season: seasonId,
       club: clubId
     });
+
+    // Emit socket event regardless of prior state
+    try {
+      const io = req.app.get('io');
+      io && io.to(`season:${seasonId}`).emit('season:club-removed', {
+        seasonId,
+        clubId,
+      });
+    } catch {}
 
     // If club wasn't found in season, it might already be removed
     // Return success anyway to avoid frontend errors
@@ -221,6 +240,15 @@ export const addPlayerToSeason = async (req, res, next) => {
       .populate('player', 'name position jerseyNumber currentClub')
       .populate('player.currentClub', 'name');
 
+    // Emit socket event
+    try {
+      const io = req.app.get('io');
+      io && io.to(`season:${seasonId}`).emit('season:player-assigned', {
+        seasonId,
+        playerId,
+      });
+    } catch {}
+
     res.status(201).json({
       success: true,
       message: 'Player added to season successfully',
@@ -245,6 +273,15 @@ export const removePlayerFromSeason = async (req, res, next) => {
       error.statusCode = 404;
       throw error;
     }
+
+    // Emit socket event
+    try {
+      const io = req.app.get('io');
+      io && io.to(`season:${seasonId}`).emit('season:player-removed', {
+        seasonId,
+        playerId,
+      });
+    } catch {}
 
     res.status(200).json({
       success: true,
@@ -363,6 +400,16 @@ export const updateClubAssignment = async (req, res, next) => {
       throw error;
     }
 
+    // Emit socket event
+    try {
+      const io = req.app.get('io');
+      io && io.to(`season:${seasonId}`).emit('season:club-assigned', {
+        seasonId,
+        clubId,
+        isAssigned,
+      });
+    } catch {}
+
     res.status(200).json({
       success: true,
       message: 'Club assignment status updated successfully',
@@ -396,6 +443,16 @@ export const updatePlayerAssignment = async (req, res, next) => {
       error.statusCode = 404;
       throw error;
     }
+
+    // Emit socket event
+    try {
+      const io = req.app.get('io');
+      io && io.to(`season:${seasonId}`).emit('season:player-assigned-status', {
+        seasonId,
+        playerId,
+        isAssigned,
+      });
+    } catch {}
 
     res.status(200).json({
       success: true,
@@ -443,6 +500,24 @@ export const updatePlayerClubAssignment = async (req, res, next) => {
       updateOperation,
       { new: true, runValidators: true }
     ).populate('currentClub', 'name');
+
+    // Emit socket event to the player's season room
+    try {
+      const io = req.app.get('io');
+      const seasonId = existingPlayer.season?.toString();
+      if (io && seasonId) {
+        console.log('Emitting player club update:', { seasonId, playerId, currentClub: player.currentClub });
+        io.to(`season:${seasonId}`).emit('season:player-club-updated', {
+          seasonId,
+          playerId,
+          currentClub: player.currentClub
+            ? { _id: player.currentClub._id?.toString?.() || player.currentClub._id || player.currentClub, name: player.currentClub.name }
+            : null,
+        });
+      }
+    } catch (error) {
+      console.error('Socket emit error:', error);
+    }
 
     res.status(200).json({
       success: true,

@@ -11,7 +11,8 @@ const DraggablePlayerCard = ({ player, inClub = false }) => {
     transition,
     isDragging,
   } = useDraggable({
-    id: player._id,
+    // Use string ID to avoid strict equality issues between ObjectId and string
+    id: player._id?.toString(),
   });
 
   const style = {

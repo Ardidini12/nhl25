@@ -39,29 +39,23 @@ const SeasonRosterManagement = ({
     // Handle club assignment/unassignment  
   const handleClubAssignment = async (clubId, assign = true) => {
     try {
-      console.log('Handling club assignment:', { clubId, assign, seasonId: season._id });
+      // Normalise id to string for reliable comparisons
+      const cid = String(clubId);
+      console.log('Handling club assignment:', { clubId: cid, assign, seasonId: season._id });
       
-      // Optimistic update - update UI immediately
       if (assign) {
         // Check if club is already assigned to prevent duplicates
-        const alreadyAssigned = seasonClubs.find(c => c._id === clubId);
+        const alreadyAssigned = seasonClubs.find(c => c._id?.toString() === cid);
         if (alreadyAssigned) {
           setDragMessage('Club is already assigned to this season');
           setTimeout(() => setDragMessage(''), 3000);
           return;
         }
         
-        // Move club from available to assigned
-        const clubToAssign = availableClubs.find(c => c._id === clubId);
-        if (clubToAssign) {
-          setAvailableClubs(prev => prev.filter(c => c._id !== clubId));
-          setSeasonClubs(prev => [...prev, { ...clubToAssign, isAssigned: true }]);
-        }
-        
         // Backend call - try updating first, then create if needed
         let assignmentSuccessful = false;
         try {
-          const updateResponse = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}/${clubId}/assignment`, {
+          const updateResponse = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}/${cid}/assignment`, {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -82,32 +76,20 @@ const SeasonRosterManagement = ({
 
         // If updating assignment failed, try to create new assignment
         if (!assignmentSuccessful) {
-          await onAssignClub(clubId);
+          // Pass normalised id to parent handler to ensure matching types
+          await onAssignClub(cid);
         }
       } else {
         // Check if club is actually assigned before unassigning
-        const isCurrentlyAssigned = seasonClubs.find(c => c._id === clubId);
+        const isCurrentlyAssigned = seasonClubs.find(c => c._id?.toString() === cid);
         if (!isCurrentlyAssigned) {
           setDragMessage('Club is not currently assigned to this season');
           setTimeout(() => setDragMessage(''), 3000);
           return;
         }
         
-        // Move club from assigned to available
-        const clubToUnassign = seasonClubs.find(c => c._id === clubId);
-        if (clubToUnassign) {
-          setSeasonClubs(prev => prev.filter(c => c._id !== clubId));
-          // Check if club is already in available clubs to prevent duplicates
-          setAvailableClubs(prev => {
-            const alreadyInAvailable = prev.find(c => c._id === clubId);
-            if (alreadyInAvailable) {
-              return prev;
-            }
-            return [...prev, { ...clubToUnassign, isAssigned: false }];
-          });
-        }
         // Backend call - mark as unassigned instead of removing completely
-        const response = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}/${clubId}/assignment`, {
+        const response = await fetch(`${API_BASE}/admin/season-management/clubs/${season._id}/${cid}/assignment`, {
           method: 'PUT',
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -120,30 +102,29 @@ const SeasonRosterManagement = ({
       
       setDragMessage(`Club ${assign ? 'assigned' : 'unassigned'} successfully!`);
       setTimeout(() => setDragMessage(''), 2000);
-      // Call onRefresh to update parent state and trigger XBHL viewer refresh
-      onRefresh();
     } catch (error) {
       console.error('Club assignment failed:', error);
       setDragMessage(`Failed to ${assign ? 'assign' : 'unassign'} club: ${error.message}`);
       setTimeout(() => setDragMessage(''), 5000);
-      // Revert optimistic update on error
-      onRefresh();
     }
   };
 
   // Handle player to club assignment
   const handlePlayerToClub = async (playerId, clubId) => {
+    // Ensure IDs are strings for consistent comparison
+    const pid = String(playerId);
+    const cid = clubId ? String(clubId) : null;
     try {
-      console.log('Handling player assignment:', { playerId, clubId });
-      
-      // Call the backend operation
-      await onPlayerClubAssignment(playerId, clubId);
-      
-      // Wait a moment for state to update
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      setDragMessage(`Player ${clubId ? 'assigned to club' : 'moved to free agents'} successfully!`);
+      console.log('Handling player assignment:', { playerId: pid, clubId: cid });
+
+      // Call the backend operation to persist the change
+      await onPlayerClubAssignment(pid, cid);
+
+      setDragMessage(`Player ${cid ? 'assigned to club' : 'moved to free agents'} successfully!`);
       setTimeout(() => setDragMessage(''), 2000);
+      
+      // Force refresh to ensure UI updates
+      onRefresh();
     } catch (error) {
       console.error('Failed to assign player to club:', error);
       setDragMessage(`Failed to assign player: ${error.message}`);
@@ -165,13 +146,16 @@ const SeasonRosterManagement = ({
 
   const handleDragStart = (event) => {
     const { active } = event;
-    const activeId = active.id;
+    // Convert the active identifier to a string so it can be reliably compared
+    const activeId = String(active.id);
     
     console.log('Drag start:', { activeId, availableClubs: availableClubs.length, seasonClubs: seasonClubs.length, seasonPlayers: seasonPlayers.length });
     
     // Find the item being dragged (could be club or player)
-    const club = [...availableClubs, ...seasonClubs].find(c => c._id === activeId);
-    const player = seasonPlayers.find(p => p._id === activeId);
+    // Find the club or player by comparing stringified IDs. Without
+    // toString() Mongoose ObjectIds will not strictly equal the string
+    const club = [...availableClubs, ...seasonClubs].find(c => c._id?.toString() === activeId);
+    const player = seasonPlayers.find(p => p._id?.toString() === activeId);
     
     console.log('Found item:', { club: club?.name, player: player?.name });
     
@@ -182,16 +166,18 @@ const SeasonRosterManagement = ({
     const { active, over } = event;
     setActiveItem(null);
 
-    if (!over || active.id === over.id) return;
+    if (!over) return;
+    // In some cases, the overlay droppable will match the player's own id; allow different target parsing below
 
-    const activeId = active.id;
-    const overId = over.id;
+    // Normalise ids to string values for comparison
+    const activeId = active?.id?.toString?.() || String(active.id);
+    const overId = over?.id?.toString?.() || String(over.id);
 
     console.log('Drag end:', { activeId, overId });
 
     // Check if we're dragging a club or player
-    const draggedClub = [...availableClubs, ...seasonClubs].find(c => c._id === activeId);
-    const draggedPlayer = seasonPlayers.find(p => p._id === activeId);
+    const draggedClub = [...availableClubs, ...seasonClubs].find(c => c._id?.toString() === activeId);
+    const draggedPlayer = seasonPlayers.find(p => p._id?.toString() === activeId);
 
     console.log('Dragged item:', { 
       club: draggedClub?.name, 
@@ -204,14 +190,14 @@ const SeasonRosterManagement = ({
       // Handle club assignments
       if (overId === 'assigned-clubs') {
         // Check if club is available (not yet assigned)
-        const isAvailable = availableClubs.find(c => c._id === activeId);
+        const isAvailable = availableClubs.find(c => c._id?.toString() === activeId);
         console.log('Club to assigned:', { clubName: draggedClub.name, isAvailable });
         if (isAvailable) {
           handleClubAssignment(activeId, true);
         }
       } else if (overId === 'available-clubs') {
         // Check if club is currently assigned
-        const isAssigned = seasonClubs.find(c => c._id === activeId);
+        const isAssigned = seasonClubs.find(c => c._id?.toString() === activeId);
         console.log('Club to unassigned:', { clubName: draggedClub.name, isAssigned });
         if (isAssigned) {
           handleClubAssignment(activeId, false);
@@ -222,8 +208,8 @@ const SeasonRosterManagement = ({
       if (overId === 'free-agents') {
         console.log('Player to free agents:', { playerName: draggedPlayer.name });
         handlePlayerToClub(activeId, null);
-      } else if (overId.startsWith('club-')) {
-        const clubId = overId.replace('club-', '');
+      } else if (overId && overId.indexOf('club-') === 0) {
+        const clubId = overId.substring('club-'.length);
         console.log('Player to club:', { playerName: draggedPlayer.name, clubId });
         handlePlayerToClub(activeId, clubId);
       }
